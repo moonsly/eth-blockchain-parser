@@ -1,0 +1,49 @@
+# Ethereum Blockchain Parser Configuration
+
+# Choose connection type: either local node or Infura
+# For local Geth node
+node_url: "http://localhost:8545"
+ws_node_url: "ws://localhost:8546"
+
+# For Infura API (set use_infura to true to enable)
+# Note: What Infura calls "API Key" is actually your Project ID
+use_infura: false
+infura_api_key: "YOUR_INFURA_API_KEY_OR_PROJECT_ID"  # This is your Project ID from Infura dashboard
+infura_api_secret: ""  # Optional, only needed for paid plans
+infura_network: "mainnet"  # mainnet, goerli, sepolia, polygon-mainnet, etc.
+
+# Network configuration
+network_id: 1  # 1=mainnet, 5=goerli, 11155111=sepolia, 137=polygon
+
+# Parser settings
+start_block: 18000000
+end_block: 18000100
+batch_size: 10
+workers: 4
+request_timeout: "30s"
+
+# Output settings
+output_format: "json"  # json, csv, database
+output_path: "./output"
+
+# Database settings (if using database output)
+database_url: "postgres://user:password@localhost/ethparser"
+
+# Filtering options
+filter_addresses: []
+filter_topics: []
+include_logs: true
+include_traces: false
+
+---
+# Example Infura configuration - just use your API key!
+use_infura: true
+infura_api_key: "your-api-key-here"  # Your Infura API Key (Project ID)
+infura_network: "mainnet"
+network_id: 1
+start_block: 18000000
+end_block: 18000010
+workers: 2  # Lower for rate limiting
+batch_size: 5  # Smaller batches for Infura
+output_format: "json"
+include_logs: true
