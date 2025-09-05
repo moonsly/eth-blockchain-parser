@@ -79,11 +79,11 @@ func NewEthClient(config ConnectionConfig) (*EthClient, error) {
 		client.infuraConfig = infuraConfig
 		client.nodeURL = infuraConfig.HTTPURL
 
-		// Set up rate limiting for Infura (2 requests per second to be very conservative)
-		client.rateLimiter = time.NewTicker(500 * time.Millisecond)
+		// Set up rate limiting for Infura (4 requests per second to be very conservative)
+		client.rateLimiter = time.NewTicker(250 * time.Millisecond)
 
 		// Further reduce batch size for Infura
-		client.batchSizeLimit = 3
+		client.batchSizeLimit = 6
 
 		log.Printf("Using Infura API for network: %s", config.InfuraNetwork)
 	}

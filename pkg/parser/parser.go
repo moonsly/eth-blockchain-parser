@@ -35,7 +35,8 @@ func NewParser(ethClient *client.EthClient, config *types.Config) *Parser {
 	}
 }
 
-// ParseBlockRange parses a range of blocks
+// ParseBlockRange - заложена на будущее возможность использовать несколько infura API key в разных воркерах,
+// чтобы не упираться в лимиты Infura
 func (p *Parser) ParseBlockRange(ctx context.Context, startBlock, endBlock uint64) ([]*types.ParsedBlock, error) {
 	log.Printf("Parsing blocks from %d to %d", startBlock, endBlock)
 
