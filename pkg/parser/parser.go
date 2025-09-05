@@ -38,7 +38,7 @@ func NewParser(ethClient *client.EthClient, config *types.Config) *Parser {
 // ParseBlockRange parses a range of blocks
 func (p *Parser) ParseBlockRange(ctx context.Context, startBlock, endBlock uint64) ([]*types.ParsedBlock, error) {
 	log.Printf("Parsing blocks from %d to %d", startBlock, endBlock)
-	
+
 	p.mu.Lock()
 	p.stats.StartTime = time.Now()
 	p.mu.Unlock()
@@ -56,6 +56,7 @@ func (p *Parser) ParseBlockRange(ctx context.Context, startBlock, endBlock uint6
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// TODO: pass to every worker separate infura API key
 			p.worker(ctx, blockChan, resultChan)
 		}()
 	}
@@ -136,7 +137,18 @@ func (p *Parser) ParseSingleBlock(ctx context.Context, blockNumber uint64) (*typ
 	}
 	parsedBlock.Transactions = transactions
 
-	log.Printf("Parsed block %d with %d transactions in %v", 
+	// Check if we should skip receipts for large blocks
+	if p.config.SkipReceiptsOnLargeBlocks && len(transactions) > p.config.MaxTransactionsForReceipts {
+		log.Printf("Skipping receipt processing for block %d: %d transactions exceeds limit of %d",
+			blockNumber, len(transactions), p.config.MaxTransactionsForReceipts)
+		// Set basic transaction info without receipts
+		for _, tx := range transactions {
+			tx.GasUsed = 0
+			tx.Status = 2 // Use 2 to indicate "receipt not fetched"
+		}
+	}
+
+	log.Printf("Parsed block %d with %d transactions in %v",
 		blockNumber, len(transactions), time.Since(startTime))
 
 	return parsedBlock, nil
@@ -149,44 +161,64 @@ func (p *Parser) parseBlockTransactions(ctx context.Context, gethBlock *gethType
 		return []*types.ParsedTransaction{}, nil
 	}
 
-	// Get transaction receipts in batch
+	var parsedTxs []*types.ParsedTransaction
+	// Check if we should skip receipts for large blocks
+	if p.config.SkipReceiptsOnLargeBlocks && len(blockTxs) > p.config.MaxTransactionsForReceipts {
+		log.Printf("Skipping receipts for block with %d transactions (exceeds limit of %d)",
+			len(blockTxs), p.config.MaxTransactionsForReceipts)
+		// Parse transactions without receipts
+		for i, gethTx := range blockTxs {
+			parsedTx, err := p.parseTransactionWithoutReceipt(gethTx, gethBlock, uint(i))
+			if err != nil {
+				log.Printf("Warning: Failed to parse transaction %s: %v", gethTx.Hash().Hex(), err)
+				continue
+			}
+			parsedTxs = append(parsedTxs, parsedTx)
+		}
+		return parsedTxs, nil
+	}
+
+	// Get transaction receipts in batch for smaller blocks
 	txHashes := make([]common.Hash, len(blockTxs))
 	for i, tx := range blockTxs {
 		txHashes[i] = tx.Hash()
 	}
 
-	receipts, err := p.client.GetTransactionReceiptsBatch(ctx, txHashes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction receipts: %w", err)
-	}
-
-	// Parse each transaction with error handling
-	var parsedTxs []*types.ParsedTransaction
-	for i, gethTx := range blockTxs {
-		// Try to parse transaction, skip if it fails
-		parsedTx, err := p.parseTransactionSafely(gethTx, gethBlock, uint(i), receipts, i)
+	if p.config.IncludeLogs {
+		receipts, err := p.client.GetTransactionReceiptsBatch(ctx, txHashes)
 		if err != nil {
-			log.Printf("Warning: Failed to parse transaction %s in block %d: %v (skipping)", 
-				gethTx.Hash().Hex(), gethBlock.NumberU64(), err)
-			// Create a minimal transaction record for unknown types
-			parsedTx = &types.ParsedTransaction{
-				Hash:             gethTx.Hash().Hex(),
-				BlockNumber:      gethBlock.NumberU64(),
-				BlockHash:        gethBlock.Hash().Hex(),
-				TransactionIndex: uint(i),
-				From:             "unknown",
-				Value:            big.NewInt(0),
-				Gas:              0,
-				GasPrice:         big.NewInt(0),
-				Nonce:            0,
-				Type:             255, // Use 255 to indicate unknown type
-				InputData:        "parse_error",
-			}
+			return nil, fmt.Errorf("failed to get transaction receipts: %w", err)
 		}
-		parsedTxs = append(parsedTxs, parsedTx)
-	}
 
+		// Parse each transaction with error handling
+		var parsedTxs []*types.ParsedTransaction
+		for i, gethTx := range blockTxs {
+			// Try to parse transaction, skip if it fails
+			parsedTx, err := p.parseTransactionSafely(gethTx, gethBlock, uint(i), receipts, i)
+			if err != nil {
+				log.Printf("Warning: Failed to parse transaction %s in block %d: %v (skipping)",
+					gethTx.Hash().Hex(), gethBlock.NumberU64(), err)
+				// Create a minimal transaction record for unknown types
+				parsedTx = &types.ParsedTransaction{
+					Hash:             gethTx.Hash().Hex(),
+					BlockNumber:      gethBlock.NumberU64(),
+					BlockHash:        gethBlock.Hash().Hex(),
+					TransactionIndex: uint(i),
+					From:             "unknown",
+					Value:            big.NewInt(0),
+					Gas:              0,
+					GasPrice:         big.NewInt(0),
+					Nonce:            0,
+					Type:             255, // Use 255 to indicate unknown/unsupported type (e.g., blob txs)
+					InputData:        "parse_error",
+				}
+			}
+			parsedTxs = append(parsedTxs, parsedTx)
+		}
+		return parsedTxs, nil
+	}
 	return parsedTxs, nil
+
 }
 
 // parseTransactionSafely safely parses a transaction with error handling for unknown types
@@ -208,7 +240,7 @@ func (p *Parser) parseTransactionSafely(gethTx *gethTypes.Transaction, gethBlock
 	// Safe from address extraction
 	from := "unknown"
 	txType := gethTx.Type()
-	
+
 	// Try different signer types for different transaction types
 	if chainId := gethTx.ChainId(); chainId != nil && chainId.Sign() != 0 {
 		// Try EIP-155 signer first
@@ -282,6 +314,7 @@ func (p *Parser) parseTransactionSafely(gethTx *gethTypes.Transaction, gethBlock
 	}
 
 	// Safely add EIP-1559 fields for type 2 transactions
+	// Also handle new transaction types introduced in go-ethereum 1.16+
 	if txType == 2 {
 		// Use defer/recover to handle any panics from accessing EIP-1559 fields
 		func() {
@@ -290,7 +323,7 @@ func (p *Parser) parseTransactionSafely(gethTx *gethTypes.Transaction, gethBlock
 					log.Printf("Error accessing EIP-1559 fields for tx %s: %v", gethTx.Hash().Hex(), r)
 				}
 			}()
-			
+
 			if gasFeeCap := gethTx.GasFeeCap(); gasFeeCap != nil {
 				parsedTx.MaxFeePerGas = gasFeeCap
 			}
@@ -314,7 +347,7 @@ func (p *Parser) worker(ctx context.Context, blockChan <-chan uint64, resultChan
 
 			startTime := time.Now()
 			block, err := p.ParseSingleBlock(ctx, blockNum)
-			
+
 			resultChan <- &types.ParseResult{
 				Block:       block,
 				Error:       err,
@@ -330,7 +363,7 @@ func (p *Parser) worker(ctx context.Context, blockChan <-chan uint64, resultChan
 // ParseBlockByHash parses a block by its hash
 func (p *Parser) ParseBlockByHash(ctx context.Context, blockHash string) (*types.ParsedBlock, error) {
 	hash := common.HexToHash(blockHash)
-	
+
 	gethBlock, err := p.client.GetBlockByHash(ctx, hash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block %s: %w", blockHash, err)
@@ -417,6 +450,93 @@ func (p *Parser) FilterTransactionsByAddress(transactions []*types.ParsedTransac
 	}
 
 	return filtered
+}
+
+// parseTransactionWithoutReceipt parses a transaction without fetching receipt data
+func (p *Parser) parseTransactionWithoutReceipt(gethTx *gethTypes.Transaction, gethBlock *gethTypes.Block, txIndex uint) (*types.ParsedTransaction, error) {
+	// Basic transaction parsing with safe field access
+	var to *string
+	if gethTx.To() != nil {
+		toAddr := gethTx.To().Hex()
+		to = &toAddr
+	}
+
+	// Safe from address extraction
+	from := "unknown"
+	txType := gethTx.Type()
+
+	// Try different signer types for different transaction types
+	if chainId := gethTx.ChainId(); chainId != nil && chainId.Sign() != 0 {
+		// Try EIP-155 signer first
+		if msg, err := gethTypes.NewEIP155Signer(chainId).Sender(gethTx); err == nil {
+			from = msg.Hex()
+		} else {
+			// Fallback to other signers
+			if msg, err := gethTypes.LatestSignerForChainID(chainId).Sender(gethTx); err == nil {
+				from = msg.Hex()
+			} else {
+				signer := gethTypes.HomesteadSigner{}
+				if msg, err := signer.Sender(gethTx); err == nil {
+					from = msg.Hex()
+				}
+			}
+		}
+	}
+
+	// Safe value access
+	value := big.NewInt(0)
+	if gethTx.Value() != nil {
+		value = gethTx.Value()
+	}
+
+	// Safe gas price access
+	gasPrice := big.NewInt(0)
+	if gethTx.GasPrice() != nil {
+		gasPrice = gethTx.GasPrice()
+	}
+
+	// Safe input data access
+	inputData := ""
+	if data := gethTx.Data(); data != nil {
+		inputData = common.Bytes2Hex(data)
+	}
+
+	parsedTx := &types.ParsedTransaction{
+		Hash:             gethTx.Hash().Hex(),
+		BlockNumber:      gethBlock.NumberU64(),
+		BlockHash:        gethBlock.Hash().Hex(),
+		TransactionIndex: txIndex,
+		From:             from,
+		To:               to,
+		Value:            value,
+		Gas:              gethTx.Gas(),
+		GasPrice:         gasPrice,
+		InputData:        inputData,
+		Nonce:            gethTx.Nonce(),
+		Type:             txType,
+		GasUsed:          0, // Not available without receipt
+		Status:           2, // Use 2 to indicate "receipt not fetched"
+	}
+
+	// Safely add EIP-1559 fields for type 2 transactions
+	if txType == 2 {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Error accessing EIP-1559 fields for tx %s: %v", gethTx.Hash().Hex(), r)
+				}
+			}()
+
+			if gasFeeCap := gethTx.GasFeeCap(); gasFeeCap != nil {
+				parsedTx.MaxFeePerGas = gasFeeCap
+			}
+			if gasTipCap := gethTx.GasTipCap(); gasTipCap != nil {
+				parsedTx.MaxPriorityFeePerGas = gasTipCap
+			}
+		}()
+	}
+
+	return parsedTx, nil
 }
 
 // GetContractCreations returns all contract creation transactions in a block range

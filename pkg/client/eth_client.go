@@ -14,19 +14,19 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/trie"
 )
 
 // EthClient wraps the go-ethereum client with additional functionality
 type EthClient struct {
-	client      *ethclient.Client
-	rpcClient   *rpc.Client
-	nodeURL     string
-	timeout     time.Duration
-	retries     int
-	isInfura    bool
-	infuraConfig *InfuraConfig
-	rateLimiter *time.Ticker // Simple rate limiting for Infura
+	client         *ethclient.Client
+	rpcClient      *rpc.Client
+	nodeURL        string
+	timeout        time.Duration
+	retries        int
+	isInfura       bool
+	infuraConfig   *InfuraConfig
+	rateLimiter    *time.Ticker // Simple rate limiting for Infura
+	batchSizeLimit int          // Maximum batch size for RPC calls
 }
 
 // InfuraConfig holds Infura-specific configuration
@@ -60,16 +60,17 @@ func NewEthClient(config ConnectionConfig) (*EthClient, error) {
 	}
 
 	client := &EthClient{
-		nodeURL: config.NodeURL,
-		timeout: config.Timeout,
-		retries: config.Retries,
-		isInfura: config.UseInfura,
+		nodeURL:        config.NodeURL,
+		timeout:        config.Timeout,
+		retries:        config.Retries,
+		isInfura:       config.UseInfura,
+		batchSizeLimit: 5, // Very conservative default for Infura
 	}
 
 	// Setup Infura configuration if enabled
 	if config.UseInfura {
 		infuraConfig := &InfuraConfig{
-			ProjectID: config.InfuraAPIKey, // API Key is actually the Project ID
+			ProjectID: config.InfuraAPIKey,    // API Key is actually the Project ID
 			APIKey:    config.InfuraAPISecret, // API Secret (optional)
 			Network:   config.InfuraNetwork,
 			HTTPURL:   buildInfuraHTTPURL(config.InfuraNetwork, config.InfuraAPIKey, config.InfuraAPISecret),
@@ -77,10 +78,13 @@ func NewEthClient(config ConnectionConfig) (*EthClient, error) {
 		}
 		client.infuraConfig = infuraConfig
 		client.nodeURL = infuraConfig.HTTPURL
-		
+
 		// Set up rate limiting for Infura (2 requests per second to be very conservative)
 		client.rateLimiter = time.NewTicker(500 * time.Millisecond)
-		
+
+		// Further reduce batch size for Infura
+		client.batchSizeLimit = 3
+
 		log.Printf("Using Infura API for network: %s", config.InfuraNetwork)
 	}
 
@@ -134,11 +138,11 @@ func (c *EthClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
 		}
 		return header.Number.Uint64(), nil
 	})
-	
+
 	if err != nil {
 		return 0, err
 	}
-	
+
 	return result.(uint64), nil
 }
 
@@ -150,20 +154,20 @@ func (c *EthClient) GetBlockByNumber(ctx context.Context, blockNumber uint64) (*
 		if err == nil {
 			return block, nil
 		}
-		
+
 		// If we get a "transaction type not supported" error, try to reconstruct the block
 		if strings.Contains(err.Error(), "transaction type not supported") {
 			log.Printf("Block %d contains unsupported transaction types, attempting to reconstruct with supported transactions", blockNumber)
 			return c.getBlockWithFilteredTransactions(ctx, blockNumber)
 		}
-		
+
 		return nil, err
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return result.(*types.Block), nil
 }
 
@@ -181,10 +185,37 @@ func (c *EthClient) GetTransactionReceipt(ctx context.Context, txHash common.Has
 
 // GetTransactionReceiptsBatch retrieves multiple transaction receipts in a batch with rate limit handling
 func (c *EthClient) GetTransactionReceiptsBatch(ctx context.Context, txHashes []common.Hash) ([]*types.Receipt, error) {
+	if len(txHashes) == 0 {
+		return []*types.Receipt{}, nil
+	}
+
+	// For small batches within our limit, try the optimized batch method
+	if len(txHashes) <= c.batchSizeLimit {
+		log.Printf("Attempting batch receipt retrieval for %d transactions", len(txHashes))
+		if receipts, err := c.getReceiptsBatchOptimized(ctx, txHashes); err == nil {
+			log.Printf("Successfully retrieved %d receipts in batch", len(txHashes))
+			return receipts, nil
+		} else {
+			log.Printf("Batch receipt retrieval failed, falling back to chunked approach: %v", err)
+		}
+	}
+
+	// For large batches, use chunked approach instead of individual calls
+	if len(txHashes) > c.batchSizeLimit {
+		log.Printf("Large batch size %d, using chunked batch processing with chunks of %d", len(txHashes), c.batchSizeLimit)
+		return c.getReceiptsInChunks(ctx, txHashes)
+	}
+
+	// Final fallback to individual receipt retrieval (only for very small batches that failed)
+	return c.getReceiptsIndividually(ctx, txHashes)
+}
+
+// getReceiptsBatchOptimized tries to get receipts in an optimized batch with better error handling
+func (c *EthClient) getReceiptsBatchOptimized(ctx context.Context, txHashes []common.Hash) ([]*types.Receipt, error) {
 	result, err := c.executeWithRetry(func() (interface{}, error) {
 		receipts := make([]*types.Receipt, len(txHashes))
-		
-		// Create batch request
+
+		// Create batch request with proper initialization
 		batch := make([]rpc.BatchElem, len(txHashes))
 		for i, txHash := range txHashes {
 			batch[i] = rpc.BatchElem{
@@ -194,26 +225,151 @@ func (c *EthClient) GetTransactionReceiptsBatch(ctx context.Context, txHashes []
 			}
 		}
 
-		if err := c.rpcClient.BatchCallContext(ctx, batch); err != nil {
-			return nil, err
+		// Execute batch call with timeout
+		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		if err := c.rpcClient.BatchCallContext(batchCtx, batch); err != nil {
+			return nil, fmt.Errorf("batch call failed: %w", err)
 		}
-		
-		// Check for individual errors
+
+		// Validate that we got responses for all requests
+		if len(batch) != len(txHashes) {
+			return nil, fmt.Errorf("batch response mismatch: expected %d responses, got %d", len(txHashes), len(batch))
+		}
+
+		// Process results with detailed error handling
 		for i, elem := range batch {
 			if elem.Error != nil {
-				log.Printf("Error getting receipt for tx %s: %v", txHashes[i].Hex(), elem.Error)
-				receipts[i] = nil
+				// Handle specific error types
+				if strings.Contains(elem.Error.Error(), "not found") ||
+					strings.Contains(elem.Error.Error(), "does not exist") {
+					log.Printf("Receipt not found for tx %s (may be pending or invalid)", txHashes[i].Hex())
+					receipts[i] = nil
+				} else if strings.Contains(elem.Error.Error(), "response batch did not contain") {
+					log.Printf("Batch response missing for tx %s: %v", txHashes[i].Hex(), elem.Error)
+					// This is the specific error we're fixing - fail the batch to retry individually
+					return nil, fmt.Errorf("batch response incomplete: %w", elem.Error)
+				} else {
+					log.Printf("Error getting receipt for tx %s: %v", txHashes[i].Hex(), elem.Error)
+					// For other errors, fail the batch and try individual calls
+					return nil, fmt.Errorf("batch element error: %w", elem.Error)
+				}
 			}
+			// If no error, the receipt should be in receipts[i] already via the Result pointer
 		}
-		
+
 		return receipts, nil
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return result.([]*types.Receipt), nil
+}
+
+// getReceiptsInChunks retrieves receipts in smaller batches to handle large transaction sets efficiently
+func (c *EthClient) getReceiptsInChunks(ctx context.Context, txHashes []common.Hash) ([]*types.Receipt, error) {
+	// TODO: задел для парсинга токен-транзакций ERC20, не вызывается для ЕТН переводов
+	allReceipts := make([]*types.Receipt, len(txHashes))
+	chunkSize := c.batchSizeLimit
+	totalChunks := (len(txHashes) + chunkSize - 1) / chunkSize
+
+	log.Printf("Processing %d transactions in %d chunks of %d", len(txHashes), totalChunks, chunkSize)
+
+	for i := 0; i < len(txHashes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(txHashes) {
+			end = len(txHashes)
+		}
+
+		chunk := txHashes[i:end]
+		chunkNum := (i / chunkSize) + 1
+		log.Printf("Processing chunk %d/%d (%d transactions)", chunkNum, totalChunks, len(chunk))
+
+		// Apply rate limiting between chunks
+		if i > 0 {
+			c.waitForRateLimit()
+		}
+
+		// Try batch first, then fall back to individual for this chunk
+		chunkReceipts, err := c.getReceiptsBatchOptimized(ctx, chunk)
+		if err != nil {
+			log.Printf("Chunk %d batch failed, using individual calls for this chunk: %v", chunkNum, err)
+			chunkReceipts, err = c.getReceiptsIndividuallyFast(ctx, chunk)
+			if err != nil {
+				log.Printf("Chunk %d individual calls failed: %v", chunkNum, err)
+				// Fill with nils and continue
+				chunkReceipts = make([]*types.Receipt, len(chunk))
+			}
+		}
+
+		// Copy chunk results to main result array
+		copy(allReceipts[i:end], chunkReceipts)
+		log.Printf("Completed chunk %d/%d", chunkNum, totalChunks)
+	}
+
+	return allReceipts, nil
+}
+
+// getReceiptsIndividuallyFast retrieves receipts one by one with reduced rate limiting for small chunks
+func (c *EthClient) getReceiptsIndividuallyFast(ctx context.Context, txHashes []common.Hash) ([]*types.Receipt, error) {
+	receipts := make([]*types.Receipt, len(txHashes))
+
+	// Use shorter delays for individual calls within a chunk
+	for i, txHash := range txHashes {
+		if i > 0 && c.isInfura {
+			// Reduced delay for individual calls within chunks
+			time.Sleep(250 * time.Millisecond) // Half the normal rate limit
+		}
+
+		receipt, err := c.client.TransactionReceipt(ctx, txHash)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") ||
+				strings.Contains(err.Error(), "does not exist") {
+				receipts[i] = nil // Receipt doesn't exist, not an error
+			} else {
+				log.Printf("Error getting receipt for tx %s: %v", txHash.Hex(), err)
+				receipts[i] = nil
+			}
+		} else {
+			receipts[i] = receipt
+		}
+	}
+
+	return receipts, nil
+}
+
+// getReceiptsIndividually retrieves receipts one by one as final fallback (only for small batches)
+func (c *EthClient) getReceiptsIndividually(ctx context.Context, txHashes []common.Hash) ([]*types.Receipt, error) {
+	// Only use this for very small batches to avoid hanging
+	if len(txHashes) > 10 {
+		log.Printf("Warning: Individual calls requested for %d transactions, switching to chunked approach", len(txHashes))
+		return c.getReceiptsInChunks(ctx, txHashes)
+	}
+
+	receipts := make([]*types.Receipt, len(txHashes))
+
+	for i, txHash := range txHashes {
+		c.waitForRateLimit() // Apply rate limiting for individual calls
+
+		receipt, err := c.client.TransactionReceipt(ctx, txHash)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") ||
+				strings.Contains(err.Error(), "does not exist") {
+				log.Printf("Receipt not found for tx %s (may be pending or invalid)", txHash.Hex())
+				receipts[i] = nil
+			} else {
+				log.Printf("Error getting individual receipt for tx %s: %v", txHash.Hex(), err)
+				receipts[i] = nil
+			}
+		} else {
+			receipts[i] = receipt
+		}
+	}
+
+	return receipts, nil
 }
 
 // GetLogs retrieves event logs based on filter criteria
@@ -256,29 +412,29 @@ func (c *EthClient) Reconnect() error {
 func (c *EthClient) executeWithRetry(fn func() (interface{}, error)) (interface{}, error) {
 	var result interface{}
 	var err error
-	
+
 	for attempt := 0; attempt <= c.retries; attempt++ {
 		if attempt > 0 {
 			// Wait before retry with exponential backoff
 			waitTime := time.Duration(attempt) * time.Second
 			log.Printf("Retrying in %v (attempt %d/%d)", waitTime, attempt, c.retries)
 			time.Sleep(waitTime)
-			
+
 			// Try to reconnect
 			if err := c.Reconnect(); err != nil {
 				log.Printf("Failed to reconnect: %v", err)
 				continue
 			}
 		}
-		
+
 		// Apply rate limiting for Infura
 		c.waitForRateLimit()
-		
+
 		result, err = fn()
 		if err == nil {
 			return result, nil
 		}
-		
+
 		// Check for rate limit errors and handle them specially
 		if c.isRateLimitError(err) {
 			waitTime := c.calculateRateLimitBackoff(attempt)
@@ -286,10 +442,10 @@ func (c *EthClient) executeWithRetry(fn func() (interface{}, error)) (interface{
 			time.Sleep(waitTime)
 			continue
 		}
-		
+
 		log.Printf("Attempt %d failed: %v", attempt+1, err)
 	}
-	
+
 	return result, fmt.Errorf("failed after %d attempts: %w", c.retries+1, err)
 }
 
@@ -299,10 +455,10 @@ func (c *EthClient) isRateLimitError(err error) bool {
 		return false
 	}
 	errorStr := err.Error()
-	return strings.Contains(errorStr, "429") || 
-		   strings.Contains(errorStr, "Too Many Requests") ||
-		   strings.Contains(errorStr, "rate limit") ||
-		   strings.Contains(errorStr, "exceeded")
+	return strings.Contains(errorStr, "429") ||
+		strings.Contains(errorStr, "Too Many Requests") ||
+		strings.Contains(errorStr, "rate limit") ||
+		strings.Contains(errorStr, "exceeded")
 }
 
 // calculateRateLimitBackoff calculates exponential backoff for rate limit errors
@@ -310,12 +466,12 @@ func (c *EthClient) calculateRateLimitBackoff(attempt int) time.Duration {
 	// Start with 1 second, double each attempt, max 60 seconds
 	baseDelay := time.Second
 	maxDelay := 60 * time.Second
-	
+
 	delay := baseDelay * time.Duration(1<<uint(attempt))
 	if delay > maxDelay {
 		delay = maxDelay
 	}
-	
+
 	return delay
 }
 
@@ -347,7 +503,7 @@ func (c *EthClient) waitForRateLimit() {
 // getBlockWithFilteredTransactions attempts to get block data using raw RPC calls to handle unsupported transaction types
 func (c *EthClient) getBlockWithFilteredTransactions(ctx context.Context, blockNumber uint64) (*types.Block, error) {
 	c.waitForRateLimit()
-	
+
 	// Use raw RPC call to get block with transactions, but with error recovery
 	var result map[string]interface{}
 	err := c.rpcClient.CallContext(ctx, &result, "eth_getBlockByNumber", fmt.Sprintf("0x%x", blockNumber), true)
@@ -355,54 +511,68 @@ func (c *EthClient) getBlockWithFilteredTransactions(ctx context.Context, blockN
 		log.Printf("Raw RPC call failed for block %d: %v", blockNumber, err)
 		return c.getBlockWithHeaderOnly(ctx, blockNumber)
 	}
-	
+
 	if result == nil {
 		return nil, fmt.Errorf("block %d not found", blockNumber)
 	}
-	
+
 	// Extract block header information
 	header, err := c.parseBlockHeader(result)
 	if err != nil {
 		log.Printf("Failed to parse block header for block %d: %v", blockNumber, err)
 		return c.getBlockWithHeaderOnly(ctx, blockNumber)
 	}
-	
+
 	// Extract transactions with error handling
 	txs, skipped := c.parseBlockTransactions(result, blockNumber)
-	
+
 	log.Printf("Successfully parsed block %d with %d transactions (%d skipped due to unsupported types)", blockNumber, len(txs), skipped)
-	
+
 	// Create block with the parsed transactions
 	emptyUncles := make([]*types.Header, 0)
-	// Use the default hasher to avoid nil pointer dereference in DeriveSha
-	hasher := trie.NewStackTrie(nil)
-	block := types.NewBlock(header, txs, emptyUncles, nil, hasher)
-	
+	emptyWithdrawals := make([]*types.Withdrawal, 0)
+
+	// Create body for the new block structure
+	body := &types.Body{
+		Transactions: txs,
+		Uncles:       emptyUncles,
+		Withdrawals:  emptyWithdrawals,
+	}
+
+	// Create block with empty receipts and nil hasher (receipts will be computed later)
+	block := types.NewBlock(header, body, nil, nil)
+
 	return block, nil
 }
 
 // getBlockWithHeaderOnly creates a block with only header info when transaction parsing fails
 func (c *EthClient) getBlockWithHeaderOnly(ctx context.Context, blockNumber uint64) (*types.Block, error) {
 	c.waitForRateLimit()
-	
+
 	// Get the block header
 	header, err := c.client.HeaderByNumber(ctx, big.NewInt(int64(blockNumber)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get header for block %d: %w", blockNumber, err)
 	}
-	
+
 	// Create a block with empty transactions and empty uncles
 	// This allows us to continue parsing even when transactions have unsupported types
 	emptyTxs := make([]*types.Transaction, 0)
 	emptyUncles := make([]*types.Header, 0)
-	
-	// Create a new block with the header and empty transaction/uncle lists
-	// Use the default hasher to avoid nil pointer dereference in DeriveSha
-	hasher := trie.NewStackTrie(nil)
-	block := types.NewBlock(header, emptyTxs, emptyUncles, nil, hasher)
-	
+	emptyWithdrawals := make([]*types.Withdrawal, 0)
+
+	// Create body for the new block structure
+	body := &types.Body{
+		Transactions: emptyTxs,
+		Uncles:       emptyUncles,
+		Withdrawals:  emptyWithdrawals,
+	}
+
+	// Create a new block with empty body and no receipts
+	block := types.NewBlock(header, body, nil, nil)
+
 	log.Printf("Created fallback block %d with header only (transactions skipped due to unsupported types)", blockNumber)
-	
+
 	return block, nil
 }
 
@@ -418,10 +588,10 @@ func NewInfuraClient(apiKey, apiSecret, network string) (*EthClient, error) {
 		Timeout:         30 * time.Second,
 		Retries:         3,
 	}
-	
+
 	config.NodeURL = buildInfuraHTTPURL(network, apiKey, apiSecret)
 	config.WSNodeURL = buildInfuraWSURL(network, apiKey, apiSecret)
-	
+
 	return NewEthClient(config)
 }
 
@@ -430,22 +600,35 @@ func NewInfuraClientSimple(apiKey, network string) (*EthClient, error) {
 	return NewInfuraClient(apiKey, "", network)
 }
 
+// SetBatchSizeLimit allows configuring the maximum batch size
+func (c *EthClient) SetBatchSizeLimit(limit int) {
+	if limit > 0 {
+		c.batchSizeLimit = limit
+		log.Printf("Batch size limit set to %d", limit)
+	}
+}
+
+// GetBatchSizeLimit returns the current batch size limit
+func (c *EthClient) GetBatchSizeLimit() int {
+	return c.batchSizeLimit
+}
+
 // GetInfuraRateLimitInfo returns rate limit information for Infura
 func (c *EthClient) GetInfuraRateLimitInfo() map[string]interface{} {
 	info := make(map[string]interface{})
-	
+
 	if !c.isInfura {
 		info["is_infura"] = false
 		return info
 	}
-	
+
 	info["is_infura"] = true
 	info["network"] = c.infuraConfig.Network
 	info["project_id"] = c.infuraConfig.ProjectID
 	info["has_api_key"] = c.infuraConfig.APIKey != ""
 	info["http_url"] = c.infuraConfig.HTTPURL
 	info["ws_url"] = c.infuraConfig.WSURL
-	
+
 	return info
 }
 
@@ -456,14 +639,14 @@ func (c *EthClient) parseBlockHeader(result map[string]interface{}) (*types.Head
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal block data: %w", err)
 	}
-	
+
 	// Parse using go-ethereum's JSON unmarshaling
 	var header types.Header
 	err = header.UnmarshalJSON(jsonData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal block header: %w", err)
 	}
-	
+
 	return &header, nil
 }
 
@@ -474,10 +657,10 @@ func (c *EthClient) parseBlockTransactions(result map[string]interface{}, blockN
 		log.Printf("No transactions field found in block %d", blockNumber)
 		return make([]*types.Transaction, 0), 0
 	}
-	
+
 	txs := make([]*types.Transaction, 0, len(txsData))
 	skipped := 0
-	
+
 	for i, txData := range txsData {
 		txMap, ok := txData.(map[string]interface{})
 		if !ok {
@@ -485,7 +668,7 @@ func (c *EthClient) parseBlockTransactions(result map[string]interface{}, blockN
 			skipped++
 			continue
 		}
-		
+
 		// Try to parse the transaction
 		tx, err := c.parseTransaction(txMap)
 		if err != nil {
@@ -493,10 +676,10 @@ func (c *EthClient) parseBlockTransactions(result map[string]interface{}, blockN
 			skipped++
 			continue
 		}
-		
+
 		txs = append(txs, tx)
 	}
-	
+
 	return txs, skipped
 }
 
@@ -507,7 +690,7 @@ func (c *EthClient) parseTransaction(txMap map[string]interface{}) (*types.Trans
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal transaction data: %w", err)
 	}
-	
+
 	var tx types.Transaction
 	err = tx.UnmarshalJSON(jsonData)
 	if err != nil {
@@ -517,7 +700,7 @@ func (c *EthClient) parseTransaction(txMap map[string]interface{}) (*types.Trans
 		}
 		return nil, err
 	}
-	
+
 	return &tx, nil
 }
 
@@ -531,36 +714,36 @@ func (c *EthClient) createFallbackTransaction(txMap map[string]interface{}) (*ty
 	gas, _ := txMap["gas"].(string)
 	gasPrice, _ := txMap["gasPrice"].(string)
 	nonce, _ := txMap["nonce"].(string)
-	
+
 	// Convert hex strings to appropriate types
 	nonceBig := new(big.Int)
 	gasBig := new(big.Int)
 	gasPriceBig := new(big.Int)
 	valueBig := new(big.Int)
-	
+
 	if nonce != "" {
 		nonceBig.SetString(strings.TrimPrefix(nonce, "0x"), 16)
 	}
-	
+
 	if gas != "" {
 		gasBig.SetString(strings.TrimPrefix(gas, "0x"), 16)
 	}
-	
+
 	if gasPrice != "" {
 		gasPriceBig.SetString(strings.TrimPrefix(gasPrice, "0x"), 16)
 	}
-	
+
 	if value != "" {
 		valueBig.SetString(strings.TrimPrefix(value, "0x"), 16)
 	}
-	
+
 	// Create a legacy transaction (type 0) as fallback
 	var toAddr *common.Address
 	if to != "" {
 		addr := common.HexToAddress(to)
 		toAddr = &addr
 	}
-	
+
 	// Create legacy transaction with available data
 	legacyTx := &types.LegacyTx{
 		Nonce:    nonceBig.Uint64(),
@@ -570,11 +753,11 @@ func (c *EthClient) createFallbackTransaction(txMap map[string]interface{}) (*ty
 		Value:    valueBig,
 		Data:     []byte{}, // Empty data for safety
 	}
-	
+
 	tx := types.NewTx(legacyTx)
-	
-	fmt.Printf("Created fallback transaction: hash=%s, from=%s, to=%s, value=%s ETH (unsupported type)\n", 
-		hash, from, 
+
+	fmt.Printf("Created fallback transaction: hash=%s, from=%s, to=%s, value=%s ETH (unsupported type)\n",
+		hash, from,
 		func() string {
 			if to != "" {
 				return to
@@ -582,6 +765,6 @@ func (c *EthClient) createFallbackTransaction(txMap map[string]interface{}) (*ty
 			return "CONTRACT_CREATION"
 		}(),
 		fmt.Sprintf("%.6f", float64(valueBig.Uint64())/1e18))
-	
+
 	return tx, nil
 }
