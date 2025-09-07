@@ -42,3 +42,16 @@ crontab -e
 
 * * * * * /home/user/infura-parser >> /var/log/eth_parser.log
 ```
+
+### 4. Запуск автотестов (для модуля filtering) 
+
+```bash
+go test -v ./pkg/filtering/
+=== RUN   TestGweiToETH
+=== RUN   TestGweiToETH/1_ETH_in_gwei
+=== RUN   TestGweiToETH/0.5_ETH_in_gwei
+...
+# benchmarks
+go test -bench ./pkg/filtering/
+```
+
