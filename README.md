@@ -43,7 +43,7 @@ crontab -e
 * * * * * /home/user/infura-parser >> /var/log/eth_parser.log
 ```
 
-### 4. Запуск автотестов (для модуля filtering) 
+### 4. Запуск автотестов (для пакета filtering) 
 
 ```bash
 go test -v ./pkg/filtering/
@@ -53,5 +53,17 @@ go test -v ./pkg/filtering/
 ...
 # benchmarks
 go test -bench ./pkg/filtering/
+```
+
+### 5. Просмотр CSV с результатами парсинга, MinETHValue = 1
+
+```bash
+ tail ./whale_txns.csv 
+...
+"https://etherscan.io/tx/0x2b8a54ff684db28cfa1b8d21799b1a727298ce234c63ef49ebb4cee51ca938db","120 ETH","TO","0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2","Wrapped Ether","2025-09-07 22:35:04","23314194"
+"https://etherscan.io/tx/0xa0414806bfbd5f1e1b6283c06009937c8a3d042cb4b918243e5e80f3b11f2fb5","430.9999 ETH","FROM","0x267be1C1D684F78cb4F6a176C4911b741E4Ffdc0","Kraken 4","2025-09-07 22:35:04","23314204"
+"https://etherscan.io/tx/0xfe862c23d7343eaa7b9e3aabdcdb14afa281e9dcbfa23681ac8d65fa7f02b17a","7.13425 ETH","TO","0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2","Wrapped Ether","2025-09-07 22:35:04","23314213"
+"https://etherscan.io/tx/0x34d0b0d89cb868deeead9f04f75598df92a41309cb34d5e777044f01c72bc797","20.13652 ETH","FROM","0x267be1C1D684F78cb4F6a176C4911b741E4Ffdc0","Kraken 4","2025-09-07 22:35:04","23314218"
+"https://etherscan.io/tx/0xf51aa420c383060b3d35ef8b4f006336784da4481b906588c36f0ef090d1f926","3.6009 ETH","FROM","0x267be1C1D684F78cb4F6a176C4911b741E4Ffdc0","Kraken 4","2025-09-07 22:35:04","23314217"
 ```
 
