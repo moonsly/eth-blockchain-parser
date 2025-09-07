@@ -23,16 +23,18 @@
 
 ```bash
 export INFURA_API_KEY="your-api-key-here"
+
+go run ./cmd/infura-parser/main.go
 ```
 
-### 2. Запуск
+### 2. Настройки числа воркеров для управления рейт-лимитами infura
+
+[config.go](pkg/types/config.go)
 
 ```bash
-# Build the simple CLI
-go build -o infura-parser ./cmd/infura-parser
-
-# Parse last 10 blocks from mainnet
-./infura-parser
+    BatchSize:                  10, // Smaller batches for Infura
+	Workers:                    5,  // Infura rate limits
+	RequestTimeout:             30 * time.Second,
 ```
 
 ### 3. Добавление в крон задачи
