@@ -8,12 +8,44 @@ import (
 	"os"
 
 	"eth-blockchain-parser/pkg/client"
+	"eth-blockchain-parser/pkg/database"
 	"eth-blockchain-parser/pkg/filtering"
 	"eth-blockchain-parser/pkg/parser"
 	"eth-blockchain-parser/pkg/types"
 )
 
 func main() {
+	// Initialize database
+	logger := log.New(os.Stdout, "[ETH-PARSER-DB] ", log.LstdFlags|log.Lshortfile)
+	logger.Println("Initializing database...")
+
+	dbConfig := database.DefaultConfig("./blockchain.db")
+	dbManager, err := database.NewDatabaseManager(dbConfig, logger)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer dbManager.Close()
+
+	ctx := context.Background()
+
+	// Initialize repositories
+	txRepo := database.NewTransactionRepository(dbManager, logger)
+	addressRepo := database.NewAddressRepository(dbManager, logger)
+	// check if main tables exists
+	_, err1 := addressRepo.GetWatched(ctx)
+	_, err2 := txRepo.GetByBlockNumber(ctx, 123)
+	// create schema if no tables
+	if err1 != nil && err2 != nil {
+		schema := database.NewSchema(logger)
+		db, err := dbManager.DB()
+		if err != nil {
+			logger.Fatalf("Failed to get database connection: %v", err)
+		}
+		if err := schema.CreateAllTables(db); err != nil {
+			logger.Fatalf("Failed to create tables: %v", err)
+		}
+	}
+
 	// Get Infura API key from environment variables (supports multiple env var names)
 	infuraAPIKey := getInfuraAPIKey()
 
@@ -27,30 +59,19 @@ func main() {
 	}
 
 	if infuraAPIKey == "YOUR_INFURA_API_KEY_HERE" || infuraAPIKey == "" {
-		fmt.Println(`
-Infura API Key Required!
+		fmt.Println(`Infura API Key Required!
 
-To use this example:
+To use this parser with Infura:
 1. Get your Infura API key from https://infura.io
 2. Set one of these environment variables:
    - export INFURA_API_KEY="your-key-here"
-   - export INFURA_PROJECT_ID="your-key-here"
-   - export INFURA_KEY="your-key-here"
-
 3. Optionally set the network:
    - export INFURA_NETWORK="mainnet"  (default)
    - export ETH_NETWORK="sepolia"     (alternative)
 
 Supported networks: mainnet, sepolia, goerli, polygon-mainnet, arbitrum-mainnet
 
-Your Infura "API Key" is actually your Project ID and looks like:
-abc123def456789...
-
-Example:
-export INFURA_API_KEY="abc123def456..."
-export INFURA_NETWORK="mainnet"
-go run examples/infura_example.go
-`)
+Your Infura "API Key" usually looks like: abc123def456789...`)
 		return
 	}
 
@@ -71,8 +92,6 @@ go run examples/infura_example.go
 	config := types.InfuraConfigSimple(infuraAPIKey, network)
 
 	blockParser := parser.NewParser(ethClient, config)
-
-	ctx := context.Background()
 
 	// Get latest block number
 	latest, err := ethClient.GetLatestBlockNumber(ctx)
@@ -137,7 +156,7 @@ go run examples/infura_example.go
 	fmt.Printf("Last block parsed: %d\n", lastBlock)
 	filtering.WriteLastBlock(config.LastBlockPath, lastBlock)
 
-	whale_txn := filtering.ParseWhaleTransactions(blocks, config.WhalesAddr, config.MinETHValue)
+	whale_txn := filtering.ParseWhaleTransactionsCsv(blocks, config.WhalesAddr, config.MinETHValue)
 	fmt.Println(whale_txn)
 	filtering.AppendCSV(config.CsvPath, whale_txn)
 }

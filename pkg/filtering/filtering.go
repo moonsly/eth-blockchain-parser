@@ -100,8 +100,12 @@ func gweiToETH(gwei big.Int) string {
 	return res
 }
 
+func ParseWhaleTransactions(blocks []*types.ParsedBlock, whalesAddrs map[string]string, minETH uint64) {
+	fmt.Print("")
+}
+
 // отфильтровать транзакции на/с бирж, на крупные суммы ЕТН, сформировать CSV
-func ParseWhaleTransactions(blocks []*types.ParsedBlock, whalesAddrs map[string]string, minETH uint64) string {
+func ParseWhaleTransactionsCsv(blocks []*types.ParsedBlock, whalesAddrs map[string]string, minETH uint64) string {
 	// blocks [] -> "number" -> "transactions"
 	// "value": 1334 36509 10869 98352 gwei / 10 ** 18 = 1.334
 	fmt.Println("Started parsing WHALE from/to transactions")
