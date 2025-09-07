@@ -60,7 +60,7 @@ func (s *Schema) transactionsTableSchema() string {
 		to_address TEXT,
 		whale_address_id INTEGER NOT NULL,
 		transfer_type TEXT NOT NULL DEFAULT '',
-		value TEXT NOT NULL DEFAULT '0',
+		value DECIMAL(10,5) NOT NULL DEFAULT '0',
 		gas INTEGER NOT NULL,
 		gas_price TEXT NOT NULL DEFAULT '0',
 		gas_used INTEGER,

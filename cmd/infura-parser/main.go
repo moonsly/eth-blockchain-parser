@@ -27,13 +27,15 @@ func main() {
 	defer dbManager.Close()
 
 	ctx := context.Background()
-
 	// Initialize repositories
 	txRepo := database.NewTransactionRepository(dbManager, logger)
 	addressRepo := database.NewAddressRepository(dbManager, logger)
 	// check if main tables exists
 	_, err1 := addressRepo.GetWatched(ctx)
-	_, err2 := txRepo.GetByBlockNumber(ctx, 123)
+	txs1, err2 := txRepo.GetByBlockNumber(ctx, 123)
+	if len(txs1) > 0 {
+		logger.Println("current txs1[0]", txs1[0])
+	}
 	// create schema if no tables
 	if err1 != nil && err2 != nil {
 		schema := database.NewSchema(logger)
@@ -45,6 +47,8 @@ func main() {
 			logger.Fatalf("Failed to create tables: %v", err)
 		}
 	}
+
+	//logger.Fatalf("BYE")
 
 	// Get Infura API key from environment variables (supports multiple env var names)
 	infuraAPIKey := getInfuraAPIKey()

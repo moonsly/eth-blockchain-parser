@@ -371,7 +371,7 @@ func TestParseWhaleTransactions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ParseWhaleTransactions(tt.blocks, tt.whaleAddrs, tt.minETH)
+		result := ParseWhaleTransactionsCsv(tt.blocks, tt.whaleAddrs, tt.minETH)
 			
 			// Count lines
 			lines := strings.Split(strings.TrimSpace(result), "\n")
@@ -426,7 +426,7 @@ func TestParseWhaleTransactionsEdgeCases(t *testing.T) {
 		"0x1234567890abcdef1234567890abcdef12345678": "Binance",
 	}
 
-	result := ParseWhaleTransactions([]*types.ParsedBlock{nilToBlock}, whaleAddrs, 1)
+	result := ParseWhaleTransactionsCsv([]*types.ParsedBlock{nilToBlock}, whaleAddrs, 1)
 	
 	// Should have FROM entry but no TO entry (since To is nil)
 	lines := strings.Split(strings.TrimSpace(result), "\n")
@@ -590,7 +590,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 		"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd": "Coinbase",
 	}
 
-	csvContent := ParseWhaleTransactions(testBlocks, whaleAddrs, 1)
+	csvContent := ParseWhaleTransactionsCsv(testBlocks, whaleAddrs, 1)
 	
 	// Step 4: Append CSV content
 	if !AppendCSV(csvFile, csvContent) {
@@ -643,6 +643,6 @@ func BenchmarkParseWhaleTransactions(b *testing.B) {
 	
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ParseWhaleTransactions(testBlocks, whaleAddrs, 1)
+		ParseWhaleTransactionsCsv(testBlocks, whaleAddrs, 1)
 	}
 }

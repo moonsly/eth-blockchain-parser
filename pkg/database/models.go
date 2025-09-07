@@ -7,24 +7,27 @@ import (
 )
 
 // Transaction represents a blockchain transaction
+// Matches the actual database schema with all required fields
 type Transaction struct {
 	ID               int64     `json:"id" db:"id"`
 	TxHash           string    `json:"tx_hash" db:"tx_hash"`
 	BlockNumber      int64     `json:"block_number" db:"block_number"`
 	BlockHash        string    `json:"block_hash" db:"block_hash"`
-	TransactionIndex int       `json:"transaction_index" db:"transaction_index"`
+	TransactionIndex int64     `json:"transaction_index" db:"transaction_index"` // int64 to match DB
 	FromAddress      string    `json:"from_address" db:"from_address"`
-	ToAddress        *string   `json:"to_address" db:"to_address"` // Nullable for contract creation
-	Value            string    `json:"value" db:"value"`           // Store as string to avoid precision loss
+	ToAddress        *string   `json:"to_address" db:"to_address"`             // Nullable for contract creation
+	WhaleAddressID   int64     `json:"whale_address_id" db:"whale_address_id"` // Foreign key - required field
+	TransferType     string    `json:"transfer_type" db:"transfer_type"`       // Required field with default ''
+	Value            string    `json:"value" db:"value"`                       // Store as string, DB has DECIMAL(10,5) with default '0'
 	Gas              int64     `json:"gas" db:"gas"`
-	GasPrice         string    `json:"gas_price" db:"gas_price"`
-	GasUsed          *int64    `json:"gas_used" db:"gas_used"` // Nullable if not yet mined
-	Status           *int      `json:"status" db:"status"`     // Nullable, 0=failed, 1=success
+	GasPrice         string    `json:"gas_price" db:"gas_price"` // Default '0'
+	GasUsed          *int64    `json:"gas_used" db:"gas_used"`   // Nullable if not yet mined
+	Status           *int      `json:"status" db:"status"`       // Nullable, 0=failed, 1=success
 	Nonce            int64     `json:"nonce" db:"nonce"`
-	InputData        []byte    `json:"input_data" db:"input_data"`
-	TxType           int       `json:"tx_type" db:"tx_type"`                   // Transaction type (0=legacy, 1=EIP-2930, 2=EIP-1559)
-	MaxFeePerGas     *string   `json:"max_fee_per_gas" db:"max_fee_per_gas"`   // EIP-1559
-	MaxPriorityFee   *string   `json:"max_priority_fee" db:"max_priority_fee"` // EIP-1559
+	InputData        []byte    `json:"input_data" db:"input_data"`             // BLOB field
+	TxType           int       `json:"tx_type" db:"tx_type"`                   // Default 0
+	MaxFeePerGas     *string   `json:"max_fee_per_gas" db:"max_fee_per_gas"`   // EIP-1559, nullable
+	MaxPriorityFee   *string   `json:"max_priority_fee" db:"max_priority_fee"` // EIP-1559, nullable
 	CreatedAt        time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }
