@@ -30,6 +30,7 @@ func WriteLastBlock(filename string, block uint64) bool {
 		log.Fatalf("failed opening file: %s", err)
 	}
 	defer file.Close() // Ensure the file is closed
+
 	content := fmt.Sprintf("%d", block)
 	if _, err := file.WriteString(content); err != nil {
 		log.Fatalf("failed writing to file: %s", err)
@@ -61,6 +62,10 @@ func ReadLastBlock(filename string) uint64 {
 
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("Error during scanning: %v", err)
+	}
+
+	if len(numbers) == 0 {
+		return 0
 	}
 
 	return numbers[0]
