@@ -188,6 +188,50 @@ func NewAddressRepository(dm *DatabaseManager, logger *log.Logger) *AddressRepos
 	}
 }
 
+func (ar *AddressRepository) DeleteAll(ctx context.Context) error {
+	db, err := ar.dm.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get database connection: %w", err)
+	}
+	query := "DELETE FROM whale_addresses"
+	_, err2 := db.Exec(query)
+	if err2 != nil {
+		return fmt.Errorf("failed to insert address: %w", err2)
+	}
+	return nil
+}
+
+func (ar *AddressRepository) BatchInsert(ctx context.Context, addrs []*WhaleAddress) error {
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	return ar.dm.RunInTransaction(func(tx *sqlx.Tx) error {
+		query := `
+			INSERT OR REPLACE INTO whale_addresses (
+				address, label
+			) VALUES (
+				:address, :label
+			)`
+
+		now := time.Now()
+		for _, transaction := range addrs {
+			if transaction.CreatedAt.IsZero() {
+				transaction.CreatedAt = now
+			}
+			transaction.UpdatedAt = now
+		}
+
+		_, err := tx.NamedExecContext(ctx, query, addrs)
+		if err != nil {
+			return fmt.Errorf("failed to batch insert addresses: %w", err)
+		}
+
+		ar.logger.Printf("Batch inserted %d addresses", len(addrs))
+		return nil
+	})
+}
+
 // InsertOrUpdate inserts a new address or updates existing one
 func (ar *AddressRepository) InsertOrUpdate(ctx context.Context, address *WhaleAddress) error {
 	db, err := ar.dm.DB()
@@ -248,6 +292,24 @@ func (ar *AddressRepository) InsertOrUpdate(ctx context.Context, address *WhaleA
 	}
 
 	return nil
+}
+
+// GetWatched retrieves all watched whale_addresses
+func (ar *AddressRepository) GetIdByAddress(ctx context.Context, addr string) ([]*WhaleAddress, error) {
+	db, err := ar.dm.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	query := "SELECT * FROM whale_addresses WHERE address = ?"
+
+	var addresses []*WhaleAddress
+	err = db.SelectContext(ctx, &addresses, query, strings.ToLower(addr))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get watched addresses: %w", err)
+	}
+
+	return addresses, nil
 }
 
 // GetWatched retrieves all watched whale_addresses

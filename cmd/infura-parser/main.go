@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"sort"
+	"strings"
 	"syscall"
 
 	"eth-blockchain-parser/pkg/client"
@@ -53,6 +56,7 @@ func main() {
 	// Initialize repositories
 	txRepo := database.NewTransactionRepository(dbManager, logger)
 	addressRepo := database.NewAddressRepository(dbManager, logger)
+
 	// check if main tables exists
 	_, err1 := addressRepo.GetWatched(ctx)
 	txs1, err2 := txRepo.GetByBlockNumber(ctx, 123)
@@ -118,6 +122,19 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 	// Create parser with Infura-optimized config
 	config := types.InfuraConfigSimple(infuraAPIKey, network)
 
+	// CLI flags
+	initw := flag.Bool("initw", false, "recreate WhaleAddreses in DB and exit")
+	flag.Parse()
+	if *initw {
+		fmt.Printf("Recreating WhaleAddress in DB mode: %v\n", *initw)
+		err := initWhales(ctx, addressRepo, config.WhalesAddr)
+		if err != nil {
+			log.Fatalf("Failed recreate initw %s", err)
+		} else {
+			log.Fatalf("Created WhaleAddresses OK")
+		}
+	}
+
 	blockParser := parser.NewParser(ethClient, config)
 
 	// Get latest block number
@@ -173,17 +190,19 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 		log.Fatalf("Failed to marshal JSON: %v", err)
 	}
 
-	filename := fmt.Sprintf("blocks_%d_%d.json", startBlock, endBlock)
-	if err := os.WriteFile(filename, jsonData, 0644); err != nil {
-		log.Fatalf("Failed to write file: %v", err)
+	if config.DumpJsonFile {
+		filename := fmt.Sprintf("blocks_%d_%d.json", startBlock, endBlock)
+		if err := os.WriteFile(filename, jsonData, 0644); err != nil {
+			log.Fatalf("Failed to write file: %v", err)
+		}
+		fmt.Printf("Results saved to %s\n", filename)
 	}
-	fmt.Printf("Results saved to %s\n", filename)
 
 	lastBlock := blocks[len(blocks)-1].Number
 	fmt.Printf("Last block parsed: %d\n", lastBlock)
 	filtering.WriteLastBlock(config.LastBlockPath, lastBlock)
 
-	tx_filtered := filtering.ParseWhaleTransactions(blocks, config.WhalesAddr, config.MinETHValue)
+	tx_filtered := filtering.ParseWhaleTransactions(ctx, blocks, config.WhalesAddr, config.MinETHValue, addressRepo)
 	fmt.Println("TX filtered", tx_filtered)
 
 	whale_txn := filtering.TransformTxsToCsv(tx_filtered, config.WhalesAddr)
@@ -194,6 +213,28 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 	if err != nil {
 		logger.Fatalf("Error inserting to db:%s", err)
 	}
+}
+
+func initWhales(ctx context.Context, ar *database.AddressRepository, whales map[string]string) error {
+	err := ar.DeleteAll(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to insert address: %w", err)
+	}
+	keys := make([]string, 0, len(whales))
+	for k := range whales {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	addrs := make([]*database.WhaleAddress, 0, len(whales))
+	for _, el := range keys {
+		lbl := whales[el]
+		w_addr := database.WhaleAddress{Address: strings.ToLower(el), Label: &lbl}
+		addrs = append(addrs, &w_addr)
+	}
+
+	err2 := ar.BatchInsert(ctx, addrs)
+	return err2
 }
 
 // getInfuraAPIKey tries multiple environment variable names to get the Infura API key

@@ -28,6 +28,7 @@ type Config struct {
 	// Output settings
 	OutputFormat string `json:"output_format" yaml:"output_format"` // json, csv, database
 	OutputPath   string `json:"output_path" yaml:"output_path"`
+	DumpJsonFile bool   `json:"dump_json_file" yaml:"dump_json_file"`
 
 	// Database settings (if using database output)
 	DatabaseURL string `json:"database_url" yaml:"database_url"`
@@ -69,6 +70,7 @@ func DefaultConfig() *Config {
 		CsvPath:                    "./whale_txns.csv",
 		LastBlockPath:              "./last_block.dat",
 		MaxBlockDelta:              50,
+		DumpJsonFile:               false,
 	}
 }
 
