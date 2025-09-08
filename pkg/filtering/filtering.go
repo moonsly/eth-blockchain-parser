@@ -2,6 +2,7 @@ package filtering
 
 import (
 	"bufio"
+	"eth-blockchain-parser/pkg/database"
 	"eth-blockchain-parser/pkg/types"
 	"fmt"
 	"log"
@@ -100,21 +101,16 @@ func gweiToETH(gwei big.Int) string {
 	return res
 }
 
-func ParseWhaleTransactions(blocks []*types.ParsedBlock, whalesAddrs map[string]string, minETH uint64) {
-	fmt.Print("")
-}
-
-// отфильтровать транзакции на/с бирж, на крупные суммы ЕТН, сформировать CSV
-func ParseWhaleTransactionsCsv(blocks []*types.ParsedBlock, whalesAddrs map[string]string, minETH uint64) string {
-	// blocks [] -> "number" -> "transactions"
-	// "value": 1334 36509 10869 98352 gwei / 10 ** 18 = 1.334
-	fmt.Println("Started parsing WHALE from/to transactions")
-
-	res := ""
+func ParseWhaleTransactions(blocks []*types.ParsedBlock, whalesAddrs map[string]string,
+	minETH uint64) []*database.Transaction {
+	fmt.Println("Started parsing WHALE from/to transactions to []")
+	// value 1.12345, from/to, whale_id
+	res := make([]*database.Transaction, 0)
 	for _, blk := range blocks {
 		for _, txn := range blk.Transactions {
-			from_name, is_from := whalesAddrs[strings.ToLower(txn.From)]
+			_, is_from := whalesAddrs[strings.ToLower(txn.From)]
 			tx_value := gweiToETH(*txn.Value)
+			tx_dest := ""
 			sum_tx, err := strconv.ParseFloat(tx_value, 64)
 			// пропускаем транзакции c value < minETH
 			if err != nil || sum_tx < float64(minETH) {
@@ -124,19 +120,51 @@ func ParseWhaleTransactionsCsv(blocks []*types.ParsedBlock, whalesAddrs map[stri
 			formattedTime := now.Format("2006-01-02 15:04:05")
 
 			if is_from {
-				res += fmt.Sprintf("\"https://etherscan.io/tx/%s\",\"%s ETH\",\"FROM\",\"%s\",\"%s\",\"%s\",\"%d\"\n",
-					txn.Hash, tx_value, txn.From, from_name, formattedTime, txn.BlockNumber)
+				tx_dest = "FROM"
 			}
 			// txn.To == nil - при транзакции с созданием контракта, проверка
 			if txn.To != nil {
-				to_name, is_to := whalesAddrs[strings.ToLower(*txn.To)]
+				_, is_to := whalesAddrs[strings.ToLower(*txn.To)]
 				if is_to {
-					res += fmt.Sprintf("\"https://etherscan.io/tx/%s\",\"%s ETH\",\"TO\",\"%s\",\"%s\",\"%s\",\"%d\"\n",
-						txn.Hash, tx_value, *txn.To, to_name, formattedTime, txn.BlockNumber)
+					tx_dest = "TO"
+					if is_from && is_to {
+						tx_dest = "INT"
+					}
 				}
+			}
+			if tx_dest != "" {
+				tx_params := []string{tx_value, tx_dest, "1"}
+				db_tx, err := database.MapParsedTxToDatabaseTx(txn, tx_params...)
+				if err != nil {
+					fmt.Println("ERROR mapping tx", txn.Hash)
+				}
+				fmt.Println(tx_dest, formattedTime, db_tx, err)
+				res = append(res, db_tx)
 			}
 		}
 	}
 
+	return res
+}
+
+// перевод txs в формат CSV - используем результат ParseWhaleTransactions
+func TransformTxsToCsv(txs []*database.Transaction, whalesAddrs map[string]string) string {
+	res := ""
+	for _, tx := range txs {
+		from_name, is_from := whalesAddrs[strings.ToLower(tx.FromAddress)]
+		now := time.Now()
+		formattedTime := now.Format("2006-01-02 15:04:05")
+		if is_from {
+			res += fmt.Sprintf("\"https://etherscan.io/tx/%s\",\"%s ETH\",\"FROM\",\"%s\",\"%s\",\"%s\",\"%d\"\n",
+				tx.TxHash, tx.Value, tx.FromAddress, from_name, formattedTime, tx.BlockNumber)
+		}
+		if tx.ToAddress != nil {
+			to_name, is_to := whalesAddrs[strings.ToLower(*tx.ToAddress)]
+			if is_to {
+				res += fmt.Sprintf("\"https://etherscan.io/tx/%s\",\"%s ETH\",\"TO\",\"%s\",\"%s\",\"%s\",\"%d\"\n",
+					tx.TxHash, tx.Value, *tx.ToAddress, to_name, formattedTime, tx.BlockNumber)
+			}
+		}
+	}
 	return res
 }

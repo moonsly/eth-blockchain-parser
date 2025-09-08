@@ -160,9 +160,17 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 	fmt.Printf("Last block parsed: %d\n", lastBlock)
 	filtering.WriteLastBlock(config.LastBlockPath, lastBlock)
 
-	whale_txn := filtering.ParseWhaleTransactionsCsv(blocks, config.WhalesAddr, config.MinETHValue)
+	tx_filtered := filtering.ParseWhaleTransactions(blocks, config.WhalesAddr, config.MinETHValue)
+	fmt.Println("TX filtered", tx_filtered)
+
+	whale_txn := filtering.TransformTxsToCsv(tx_filtered, config.WhalesAddr)
 	fmt.Println(whale_txn)
 	filtering.AppendCSV(config.CsvPath, whale_txn)
+
+	err = txRepo.BatchInsert(ctx, tx_filtered)
+	if err != nil {
+		logger.Fatalf("Error inserting to db:%s", err)
+	}
 }
 
 // getInfuraAPIKey tries multiple environment variable names to get the Infura API key

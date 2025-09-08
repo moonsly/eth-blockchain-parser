@@ -29,7 +29,7 @@ type ParsedTransaction struct {
 	Hash             string       `json:"hash"`
 	BlockNumber      uint64       `json:"block_number"`
 	BlockHash        string       `json:"block_hash"`
-	TransactionIndex uint         `json:"transaction_index"`
+	TransactionIndex uint64       `json:"transaction_index"`
 	From             string       `json:"from"`
 	To               *string      `json:"to"` // nil for contract creation
 	Value            *big.Int     `json:"value"`

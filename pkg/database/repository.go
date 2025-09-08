@@ -150,12 +150,12 @@ func (tr *TransactionRepository) BatchInsert(ctx context.Context, transactions [
 		query := `
 			INSERT OR REPLACE INTO transactions (
 				tx_hash, block_number, block_hash, transaction_index, from_address, to_address,
-				value, gas, gas_price, gas_used, status, nonce, input_data, tx_type,
-				max_fee_per_gas, max_priority_fee, created_at, updated_at
+				value, gas, gas_price, gas_used, status, nonce, input_data, tx_type, transfer_type,
+				max_fee_per_gas, max_priority_fee, created_at, updated_at, whale_address_id
 			) VALUES (
 				:tx_hash, :block_number, :block_hash, :transaction_index, :from_address, :to_address,
-				:value, :gas, :gas_price, :gas_used, :status, :nonce, :input_data, :tx_type,
-				:max_fee_per_gas, :max_priority_fee, :created_at, :updated_at
+				:value, :gas, :gas_price, :gas_used, :status, :nonce, :input_data, :tx_type, :transfer_type,
+				:max_fee_per_gas, :max_priority_fee, :created_at, :updated_at, :whale_address_id
 			)`
 
 		now := time.Now()

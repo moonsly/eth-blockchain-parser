@@ -66,7 +66,7 @@ func (s *Schema) transactionsTableSchema() string {
 		gas_used INTEGER,
 		status INTEGER,
 		nonce INTEGER NOT NULL,
-		input_data BLOB,
+		input_data TEXT,
 		tx_type INTEGER NOT NULL DEFAULT 0,
 		max_fee_per_gas TEXT,
 		max_priority_fee TEXT,
