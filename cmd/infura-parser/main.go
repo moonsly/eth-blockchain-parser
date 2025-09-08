@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"syscall"
 
 	"eth-blockchain-parser/pkg/client"
 	"eth-blockchain-parser/pkg/database"
@@ -15,6 +16,28 @@ import (
 )
 
 func main() {
+	// check lock file
+	lockFilePath := "/tmp/eth_parser.lock"
+
+	// Open the lock file (create if it doesn't exist)
+	f, err := os.OpenFile(lockFilePath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		log.Fatalf("Failed to open lock file: %v", err)
+	}
+	defer f.Close() // Ensure the file is closed on exit
+
+	// Attempt to acquire an exclusive, non-blocking lock
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		if err == syscall.EWOULDBLOCK {
+			fmt.Println("Another instance of the script is already running. Exiting.")
+			os.Exit(1) // Exit if lock cannot be acquired
+		}
+		log.Fatalf("Failed to acquire file lock: %v", err)
+	}
+	// lock acquired - continue, unlock in defer
+
+	fmt.Println("Lock acquired. Running script...")
 	// Initialize database
 	logger := log.New(os.Stdout, "[ETH-PARSER-DB] ", log.LstdFlags|log.Lshortfile)
 	logger.Println("Initializing database...")
