@@ -98,6 +98,8 @@ func (s *Schema) createIndexes(db *sqlx.DB) error {
 		// Transaction indexes
 		{"idx_transactions_from", "CREATE INDEX IF NOT EXISTS idx_transactions_from ON transactions(from_address);"},
 		{"idx_transactions_to", "CREATE INDEX IF NOT EXISTS idx_transactions_to ON transactions(to_address);"},
+		{"idx_transactions_value", "CREATE INDEX IF NOT EXISTS idx_transactions_value ON transactions(value);"},
+		{"idx_transactions_tr_type", "CREATE INDEX IF NOT EXISTS idx_transactions_tr_type ON transactions(transfer_type);"},
 
 		// Address indexes
 		{"idx_addresses_address", "CREATE INDEX IF NOT EXISTS idx_addresses_address ON whale_addresses(address);"},
