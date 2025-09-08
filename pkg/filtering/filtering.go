@@ -130,9 +130,9 @@ func ParseWhaleTransactions(ctx context.Context, blocks []*types.ParsedBlock, wh
 				_, is_to := whalesAddrs[strings.ToLower(*txn.To)]
 				if is_to {
 					tx_dest = "TO"
+					exch_addr = *txn.To
 					if is_from && is_to {
 						tx_dest = "INT"
-						exch_addr = *txn.To
 					}
 				}
 			}
