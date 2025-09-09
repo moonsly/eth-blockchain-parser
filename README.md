@@ -32,7 +32,9 @@
 ## CURL для тестирования (АПИ + воркер развернуты на хостинге)
 
 JSON API логин/пасс:
-http://lnkweb.ru:8015/api/
+
+http://lnkweb.ru:8015/api
+
 admin/password123
 
 ```bash
@@ -64,12 +66,19 @@ curl -u "admin:password123" -H "Content-type: application/json" -s -X GET http:/
 
 ## Особенности реализации
 
-### 1. Запуск с Infura API Key (можно получить после бесплатной регистрации)
+### 1. Сборка и запуск с Infura API Key (можно получить после бесплатной регистрации)
 
 ```bash
 export INFURA_API_KEY="your-api-key-here"
 
 go run ./cmd/infura-parser/main.go
+
+# build
+cd /home/zak/work/eth-blockchain-parser
+
+rm ./server-run; go build -o server-run ./cmd/server-run/
+
+rm ./infura-parser; go build -o infura-parser ./cmd/infura-parser/
 ```
 
 ### 2. Настройки числа воркеров для управления рейт-лимитами infura
@@ -93,8 +102,7 @@ go run ./cmd/infura-parser/main.go -initw
 ```bash
 crontab -e 
 
-* * * * * /home/user/infura-parser >> /var/log/eth_parser.log
-```
+*/2 * * * * cd /home/zak/work/eth-blockchain-parser && INFURA_API_KEY="abc_infura_key" ./infura-parser 2>&1 >> /var/log/eth_parser/eth_parser.log```
 
 ### 5. Запуск автотестов (для пакета filtering) 
 
