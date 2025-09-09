@@ -141,6 +141,21 @@ func (tr *TransactionRepository) GetByBlockNumber(ctx context.Context, blockNumb
 	return transactions, nil
 }
 
+// clear old txns
+func (tr *TransactionRepository) ClearOldTxns(ctx context.Context) error {
+	db, err := tr.dm.DB()
+	if err != nil {
+		return fmt.Errorf("failed to get database connection: %w", err)
+	}
+	// TODO: move 14 days to config
+	query := "DELETE FROM transactions where created_at <= datetime('now', '-14 days')"
+	_, err2 := db.Exec(query)
+	if err2 != nil {
+		return fmt.Errorf("failed to clear old txs: %w", err2)
+	}
+	return nil
+}
+
 // BatchInsert inserts multiple transactions in a transaction
 func (tr *TransactionRepository) BatchInsert(ctx context.Context, transactions []*Transaction) error {
 	if len(transactions) == 0 {

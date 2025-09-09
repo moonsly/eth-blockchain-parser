@@ -69,7 +69,7 @@ func DefaultConfig() *Config {
 		WhalesAddr:                 WhaleAddresses(),
 		CsvPath:                    "./whale_txns.csv",
 		LastBlockPath:              "./last_block.dat",
-		MaxBlockDelta:              50,
+		MaxBlockDelta:              100,
 		DumpJsonFile:               false,
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"eth-blockchain-parser/pkg/client"
 	"eth-blockchain-parser/pkg/database"
@@ -45,7 +46,7 @@ func main() {
 	logger := log.New(os.Stdout, "[ETH-PARSER-DB] ", log.LstdFlags|log.Lshortfile)
 	logger.Println("Initializing database...")
 
-	dbConfig := database.DefaultConfig("./blockchain.db")
+	dbConfig := database.DefaultConfig("/home/zak/work/eth-blockchain-parser/blockchain.db")
 	dbManager, err := database.NewDatabaseManager(dbConfig, logger)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -56,6 +57,9 @@ func main() {
 	// Initialize repositories
 	txRepo := database.NewTransactionRepository(dbManager, logger)
 	addressRepo := database.NewAddressRepository(dbManager, logger)
+
+	// remove old DB txs records
+	RemoveOldTxs(ctx, txRepo)
 
 	// check if main tables exists
 	_, err1 := addressRepo.GetWatched(ctx)
@@ -146,7 +150,7 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 	fmt.Printf("Latest block: %d\n", latest)
 
 	// Parse blocks from lastBlock in file
-	startBlock := filtering.ReadLastBlock(config.LastBlockPath) + 1
+	startBlock := filtering.ReadLastBlock(config.LastBlockPath)
 	endBlock := latest
 	// если сервис долго простаивал - парсим только последние config.MaxBlockDelta блоков от latest
 	// иначе долго будем догонять latest block, пропустим актуальные крупные ЕТН транзакции
@@ -237,6 +241,19 @@ func initWhales(ctx context.Context, ar *database.AddressRepository, whales map[
 
 	err2 := ar.BatchInsert(ctx, addrs)
 	return err2
+}
+
+// clean old txs (older then 14 days) in DB
+func RemoveOldTxs(ctx context.Context, txrepo *database.TransactionRepository) {
+	now := time.Now()
+	// Extract the hour and minute components
+	hour := now.Hour()
+	minute := now.Minute()
+	// clean txs at ~ 00:30
+	if hour == 0 && minute >= 30 && minute <= 33 {
+		fmt.Printf("Time %d:%d - removing old DB txns\n", hour, minute)
+		txrepo.ClearOldTxns(ctx)
+	}
 }
 
 // getInfuraAPIKey tries multiple environment variable names to get the Infura API key
