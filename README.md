@@ -22,13 +22,45 @@
 3) схемы таблиц, создание схем, индексы в БД
 4) инициализация таблицы whale_addresses в БД значениями из config.WhalesAddr (запуск с параметром -initw)
 5) частичное покрытие автотестами - для пакета filtering
-
-### В процессе реализации:
-
 6) JSON API на net/http с basic HTTP авторизацией
 7) запуск на своем хостинге, тестирование несколько дней с накоплением записей в БД
-8) Dockerfile
-9) регулярная очистка старых записей в БД (старше месяца, число дней в конфиге)
+8) регулярная очистка старых записей в БД (старше 14 дней)
+
+### В процессе реализации:
+9) Dockerfile
+
+## CURL для тестирования (АПИ + воркер развернуты на хостинге)
+
+JSON API логин/пасс:
+http://lnkweb.ru:8015/api/
+admin/password123
+
+```bash
+# все транзакции
+
+curl -u "admin:password123" -H "Content-type: application/json" -s -X GET http://lnkweb.ru:8015/api/transactions | jq
+
+# транзакции с пагинацией
+
+curl -u "admin:password123" -G "http://lnkweb.ru:8015/api/transactions" -d limit=3 -d page=3
+{"success":true,"data":[{"id":71,"tx_hash":"0xb8060760673bbc0e4cae6ea1e98a60e10623cb4e65e7990b111289edaa4b6142","block_number":23328197,"block_hash":"0xbced5bfb77c689773c1213c2df635eeab2805f4620f8af25fe53aeeb8702fc9d","transaction_index":150,"from_address":"0x56Eddb7aa87536c09CCc2793473599fD21A8b17F",...}],"count":3,"meta":{"page":3,"limit":3,"total":66,"has_next":true,"has_prev":true}}
+
+# 1 транзакция по tx_hash
+
+curl -u "admin:password123" -H "Content-type: application/json" -s -X GET http://lnkweb.ru:8015/api/transactions/0x3bb4c67c987ae8e2b383370a19ba1f634f5c7535446d5074ddfc42018700b5c0 | jq
+{
+  "success": true,
+  "data": {
+    "id": 72,
+    "tx_hash": "0x3bb4c67c987ae8e2b383370a19ba1f634f5c7535446d5074ddfc42018700b5c0",
+    ...
+  }
+}
+
+# все транзакции по кошельку 0x56Eddb7aa87536c09CCc2793473599fD21A8b17F
+
+curl -u "admin:password123" -H "Content-type: application/json" -s -X GET http://lnkweb.ru:8015/api/addresses/0x56Eddb7aa87536c09CCc2793473599fD21A8b17F/transactions
+```
 
 ## Особенности реализации
 
