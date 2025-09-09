@@ -21,13 +21,14 @@
 2) лок через syscall.Flock, чтобы работал всегда только один инстанс парсера (например, если по крону предыдущий еще не завершился - нельзя запускать 2й инстанс)
 3) схемы таблиц, создание схем, индексы в БД
 4) инициализация таблицы whale_addresses в БД значениями из config.WhalesAddr (запуск с параметром -initw)
+5) частичное покрытие автотестами - для пакета filtering
 
 ### В процессе реализации:
 
-5) JSON API на net/http с basic HTTP авторизацией
-6) запуск на своем хостинге, тестирование несколько дней с накоплением записей в БД
-7) Dockerfile
-8) регулярная очистка старых записей в БД (старше месяца, число дней в конфиге)
+6) JSON API на net/http с basic HTTP авторизацией
+7) запуск на своем хостинге, тестирование несколько дней с накоплением записей в БД
+8) Dockerfile
+9) регулярная очистка старых записей в БД (старше месяца, число дней в конфиге)
 
 ## Особенности реализации
 
@@ -49,7 +50,13 @@ go run ./cmd/infura-parser/main.go
 	RequestTimeout:             30 * time.Second,
 ```
 
-### 3. Добавление в крон задачи
+### 3. Инициализация whale_addresses БД из конфига config.WhalesAddr
+
+```bash
+go run ./cmd/infura-parser/main.go -initw
+```
+
+### 4. Добавление в крон задачи
 
 ```bash
 crontab -e 
@@ -57,7 +64,7 @@ crontab -e
 * * * * * /home/user/infura-parser >> /var/log/eth_parser.log
 ```
 
-### 4. Запуск автотестов (для пакета filtering) 
+### 5. Запуск автотестов (для пакета filtering) 
 
 ```bash
 go test -v ./pkg/filtering/
@@ -66,10 +73,10 @@ go test -v ./pkg/filtering/
 === RUN   TestGweiToETH/0.5_ETH_in_gwei
 ...
 # benchmarks
-go test -bench ./pkg/filtering/
+go test ./pkg/filtering -bench=.
 ```
 
-### 5. Просмотр CSV с результатами парсинга, MinETHValue = 1
+### 6. Просмотр CSV с результатами парсинга, MinETHValue = 1
 
 ```bash
  tail ./whale_txns.csv 
@@ -81,7 +88,7 @@ go test -bench ./pkg/filtering/
 "https://etherscan.io/tx/0xf51aa420c383060b3d35ef8b4f006336784da4481b906588c36f0ef090d1f926","3.6009 ETH","FROM","0x267be1C1D684F78cb4F6a176C4911b741E4Ffdc0","Kraken 4","2025-09-07 22:35:04","23314217"
 ```
 
-### 6. Пример БД с результатами парсинга, MinETHValue = 1
+### 7. Пример БД с результатами парсинга, MinETHValue = 1
 ```sql
 sqlite> select id, tx_hash, whale_address_id wid, value, transfer_type tt, strftime('%d.%m %H:%M:%S', created_at) time from transactions order by id desc limit 20;
 id|tx_hash|wid|value|tt|time
@@ -90,8 +97,5 @@ id|tx_hash|wid|value|tt|time
 268|0x4c657a9340e3621691a0dfb50499315ce993ebbc44a186bd4e111e06be218631|11|1.17812|FROM|08.09 21:55:38
 267|0x41b5e154e7a99627e20c8b7924dc02eac284eb2cccb5ca2f6037ad84d130f689|24|12.607|FROM|08.09 21:55:38
 266|0xb2e779de347f754cc11823f5401a1cf2a355f68463ec476a17a3092f4295f221|11|1.53962|FROM|08.09 21:48:24
-265|0x14d671fb1876f7f7af159be79253bab1035ca85e3194348e12a6739ac1b024a4|1|1.39995|TO|08.09 21:48:24
-264|0x35d1d0f7e8e376e01775da362fcc5d73e98016e076cee6959a12a0e39ff97b25|1|3.11599|TO|08.09 21:48:24
-263|0x51ef54dd11b6dd8bf76c86dafc158940e0729d372ce20fa85fe2e7072bff8a0a|11|1.00472|FROM|08.09 21:48:24
-262|0xb0ec71b9a9ed6860353b58c74327f09ff3bf039b03b5a99f5229d00a0c5d9662|1|1.44714|TO|08.09 21:48:24
+...
 ```

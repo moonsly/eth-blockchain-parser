@@ -202,10 +202,12 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 	fmt.Printf("Last block parsed: %d\n", lastBlock)
 	filtering.WriteLastBlock(config.LastBlockPath, lastBlock)
 
-	tx_filtered := filtering.ParseWhaleTransactions(ctx, blocks, config.WhalesAddr, config.MinETHValue, addressRepo)
+	cnf_maps, err := addressRepo.GetAddrMappings(ctx)
+	whalesAddrToID, whalesAddrToLabel := cnf_maps[0], cnf_maps[1]
+	tx_filtered := filtering.ParseWhaleTransactions(blocks, *whalesAddrToID, config.MinETHValue)
 	fmt.Println("TX filtered", tx_filtered)
 
-	whale_txn := filtering.TransformTxsToCsv(tx_filtered, config.WhalesAddr)
+	whale_txn := filtering.TransformTxsToCsv(tx_filtered, *whalesAddrToLabel)
 	fmt.Println(whale_txn)
 	filtering.AppendCSV(config.CsvPath, whale_txn)
 

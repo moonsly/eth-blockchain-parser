@@ -2,7 +2,6 @@ package filtering
 
 import (
 	"bufio"
-	"context"
 	"eth-blockchain-parser/pkg/database"
 	"eth-blockchain-parser/pkg/types"
 	"fmt"
@@ -102,17 +101,17 @@ func gweiToETH(gwei big.Int) string {
 	return res
 }
 
-func ParseWhaleTransactions(ctx context.Context, blocks []*types.ParsedBlock, whalesAddrs map[string]string,
-	minETH uint64, ar *database.AddressRepository) []*database.Transaction {
+func ParseWhaleTransactions(blocks []*types.ParsedBlock, whalesAddrsID map[string]string,
+	minETH uint64) []*database.Transaction {
+
 	fmt.Println("Started parsing WHALE from/to transactions to []")
 	// value 1.12345, from/to, whale_id
 	res := make([]*database.Transaction, 0)
 	for _, blk := range blocks {
 		for _, txn := range blk.Transactions {
-			_, is_from := whalesAddrs[strings.ToLower(txn.From)]
+			whale_id, is_from := whalesAddrsID[strings.ToLower(txn.From)]
 			tx_value := gweiToETH(*txn.Value)
 			tx_dest := ""
-			exch_addr := ""
 			sum_tx, err := strconv.ParseFloat(tx_value, 64)
 			// пропускаем транзакции c value < minETH
 			if err != nil || sum_tx < float64(minETH) {
@@ -123,30 +122,21 @@ func ParseWhaleTransactions(ctx context.Context, blocks []*types.ParsedBlock, wh
 
 			if is_from {
 				tx_dest = "FROM"
-				exch_addr = txn.From
 			}
 			// txn.To == nil - при транзакции с созданием контракта, проверка
 			if txn.To != nil {
-				_, is_to := whalesAddrs[strings.ToLower(*txn.To)]
+				whale_to_id, is_to := whalesAddrsID[strings.ToLower(*txn.To)]
 				if is_to {
+					whale_id = whale_to_id
 					tx_dest = "TO"
-					exch_addr = *txn.To
 					if is_from && is_to {
 						tx_dest = "INT"
 					}
 				}
 			}
 			if tx_dest != "" {
-				// get correct whale_address_id by 0x address
-				whale_ids, err := ar.GetIdByAddress(ctx, exch_addr)
-				if err != nil {
-					fmt.Println("ERROR getting whale address", err)
-				}
-				wh_id := "1"
-				if len(whale_ids) > 0 {
-					wh_id = strconv.Itoa(int(whale_ids[0].ID))
-				}
-				tx_params := []string{tx_value, tx_dest, wh_id}
+				// map to db.Transaction
+				tx_params := []string{tx_value, tx_dest, whale_id}
 				db_tx, err := database.MapParsedTxToDatabaseTx(txn, tx_params...)
 				if err != nil {
 					fmt.Println("ERROR mapping tx", txn.Hash)

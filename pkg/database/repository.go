@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -232,68 +233,6 @@ func (ar *AddressRepository) BatchInsert(ctx context.Context, addrs []*WhaleAddr
 	})
 }
 
-// InsertOrUpdate inserts a new address or updates existing one
-func (ar *AddressRepository) InsertOrUpdate(ctx context.Context, address *WhaleAddress) error {
-	db, err := ar.dm.DB()
-	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	now := time.Now()
-	address.UpdatedAt = now
-
-	// Check if address exists
-	var existingID sql.NullInt64
-	err = db.GetContext(ctx, &existingID, "SELECT id FROM whale_addresses WHERE address = ?", address.Address)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("failed to check existing address: %w", err)
-	}
-
-	if existingID.Valid {
-		// Update existing address
-		address.ID = existingID.Int64
-		query := `
-			UPDATE whale_addresses SET 
-				label = :label,
-				address_type = :address_type,
-				is_watched = :is_watched,
-				updated_at = :updated_at
-			WHERE id = :id`
-
-		_, err = db.NamedExecContext(ctx, query, address)
-		if err != nil {
-			return fmt.Errorf("failed to update address: %w", err)
-		}
-		ar.logger.Printf("Updated address %s", address.Address)
-	} else {
-		// Insert new address
-		if address.CreatedAt.IsZero() {
-			address.CreatedAt = now
-		}
-
-		query := `
-			INSERT INTO whale_addresses (
-				address, label, is_watched, created_at, updated_at
-			) VALUES (
-				:address, :label, :is_watched, :created_at, :updated_at
-			)`
-
-		result, err := db.NamedExecContext(ctx, query, address)
-		if err != nil {
-			return fmt.Errorf("failed to insert address: %w", err)
-		}
-
-		id, err := result.LastInsertId()
-		if err != nil {
-			return fmt.Errorf("failed to get last insert ID: %w", err)
-		}
-		address.ID = id
-		ar.logger.Printf("Inserted address %s", address.Address)
-	}
-
-	return nil
-}
-
 // GetWatched retrieves all watched whale_addresses
 func (ar *AddressRepository) GetIdByAddress(ctx context.Context, addr string) ([]*WhaleAddress, error) {
 	db, err := ar.dm.DB()
@@ -310,6 +249,22 @@ func (ar *AddressRepository) GetIdByAddress(ctx context.Context, addr string) ([
 	}
 
 	return addresses, nil
+}
+
+// get from DB config mappings address -> ID, address -> label
+func (ar *AddressRepository) GetAddrMappings(ctx context.Context) ([]*map[string]string, error) {
+	addrs, err := ar.GetWatched(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get addresses: %w", err)
+	}
+	addr_to_id := map[string]string{}
+	addr_to_label := map[string]string{}
+	for _, addr := range addrs {
+		addr_to_id[strings.ToLower(addr.Address)] = strconv.Itoa(int(addr.ID))
+		addr_to_label[strings.ToLower(addr.Address)] = *addr.Label
+	}
+	resp := []*map[string]string{&addr_to_id, &addr_to_label}
+	return resp, nil
 }
 
 // GetWatched retrieves all watched whale_addresses
