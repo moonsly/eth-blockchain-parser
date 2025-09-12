@@ -34,8 +34,8 @@ type Config struct {
 	DatabaseURL string `json:"database_url" yaml:"database_url"`
 
 	// Filtering options
-	MinETHValue     uint64            `json: "min_eth_value" yaml:"min_eth_value"`
-	WhalesAddr      map[string]string `json: "address_names" yaml:"address_names"`
+	MinETHValue     uint64            `json:"min_eth_value" yaml:"min_eth_value"`
+	WhalesAddr      map[string]string `json:"address_names" yaml:"address_names"`
 	FilterAddresses []string          `json:"filter_addresses" yaml:"filter_addresses"`
 	FilterTopics    []string          `json:"filter_topics" yaml:"filter_topics"`
 	IncludeLogs     bool              `json:"include_logs" yaml:"include_logs"`
