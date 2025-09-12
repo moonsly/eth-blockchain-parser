@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"eth-blockchain-parser/internal/types"
 	"eth-blockchain-parser/pkg/client"
-	"eth-blockchain-parser/pkg/types"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"

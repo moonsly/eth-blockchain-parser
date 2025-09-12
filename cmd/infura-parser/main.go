@@ -12,11 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"eth-blockchain-parser/internal/filtering"
+	"eth-blockchain-parser/internal/types"
 	"eth-blockchain-parser/pkg/client"
 	"eth-blockchain-parser/pkg/database"
-	"eth-blockchain-parser/pkg/filtering"
 	"eth-blockchain-parser/pkg/parser"
-	"eth-blockchain-parser/pkg/types"
 )
 
 func getFileBTime(fname string) (*time.Time, error) {

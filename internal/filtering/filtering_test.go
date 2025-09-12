@@ -1,8 +1,8 @@
 package filtering
 
 import (
+	"eth-blockchain-parser/internal/types"
 	"eth-blockchain-parser/pkg/database"
-	"eth-blockchain-parser/pkg/types"
 	"math/big"
 	"os"
 	"path/filepath"

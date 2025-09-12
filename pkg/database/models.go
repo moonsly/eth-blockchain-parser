@@ -2,7 +2,7 @@ package database
 
 import (
 	"database/sql/driver"
-	"eth-blockchain-parser/pkg/types"
+	"eth-blockchain-parser/internal/types"
 	"fmt"
 	"strconv"
 	"time"

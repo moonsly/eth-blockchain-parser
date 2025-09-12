@@ -2,8 +2,8 @@ package filtering
 
 import (
 	"bufio"
+	"eth-blockchain-parser/internal/types"
 	"eth-blockchain-parser/pkg/database"
-	"eth-blockchain-parser/pkg/types"
 	"fmt"
 	"log"
 	"math/big"

@@ -107,13 +107,13 @@ crontab -e
 ### 5. Запуск автотестов (для пакета filtering) 
 
 ```bash
-go test -v ./pkg/filtering/
+go test -v ./internal/filtering/
 === RUN   TestGweiToETH
 === RUN   TestGweiToETH/1_ETH_in_gwei
 === RUN   TestGweiToETH/0.5_ETH_in_gwei
 ...
 # benchmarks
-go test ./pkg/filtering -bench=.
+go test ./internal/filtering -bench=.
 ```
 
 ### 6. Просмотр CSV с результатами парсинга, MinETHValue = 1
