@@ -19,16 +19,50 @@ import (
 	"eth-blockchain-parser/pkg/types"
 )
 
+func getFileBTime(fname string) (*time.Time, error) {
+	fileInfo, err := os.Stat(fname)
+	if err != nil {
+		return nil, fmt.Errorf("Error stating file: %v\n", err)
+	}
+
+	statT, ok := fileInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil, fmt.Errorf("Could not get syscall.Stat_t from FileInfo.Sys()")
+	}
+	resp := time.Unix(statT.Ctim.Sec, 0)
+	return &resp, nil
+}
+
 func main() {
-	// check lock file
+	// check lock file, remove it on timeout 300 sec to avoid deadlock
 	lockFilePath := "/tmp/eth_parser.lock"
+	ctime, err := getFileBTime(lockFilePath)
+	if err != nil {
+		fmt.Println("Skipping TS check for lockfile")
+	} else {
+		fmt.Println("Lock file CTIME", lockFilePath, ctime)
+		now := time.Now()
+		d_seconds := now.Sub(*ctime).Seconds()
+		// TODO: move timeout to config
+		if d_seconds > 300 {
+			fmt.Printf("Reinit lock file. Difference in seconds: %.0f\n", d_seconds)
+			err = os.Remove(lockFilePath)
+			if err != nil {
+				fmt.Print(err)
+			}
+		}
+	}
 
 	// Open the lock file (create if it doesn't exist)
 	f, err := os.OpenFile(lockFilePath, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		log.Fatalf("Failed to open lock file: %v", err)
 	}
-	defer f.Close() // Ensure the file is closed on exit
+	// Ensure the file is closed and removed on exit
+	defer func() {
+		f.Close()
+		os.Remove(lockFilePath)
+	}()
 
 	// Attempt to acquire an exclusive, non-blocking lock
 	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
