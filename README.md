@@ -44,6 +44,11 @@ docker-compose up -d
 docker-compose logs -f
 
 ```
+После запуска - можно заходить в админку с транзакциями: 
+
+http://localhost:8015/api/transactions 
+
+admin/password123
 
 ## CURL для тестирования (АПИ + воркер развернуты на хостинге)
 
