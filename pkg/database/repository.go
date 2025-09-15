@@ -266,6 +266,22 @@ func (ar *AddressRepository) GetIdByAddress(ctx context.Context, addr string) ([
 	return addresses, nil
 }
 
+func (ar *AddressRepository) GetAnyAddress(ctx context.Context) ([]*WhaleAddress, error) {
+	db, err := ar.dm.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	query := "SELECT * FROM whale_addresses ORDER BY id LIMIT 1"
+	var addresses []*WhaleAddress
+	err = db.SelectContext(ctx, &addresses, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get watched addresses: %w", err)
+	}
+	return addresses, nil
+
+}
+
 // get from DB config mappings address -> ID, address -> label
 func (ar *AddressRepository) GetAddrMappings(ctx context.Context) ([]*map[string]string, error) {
 	addrs, err := ar.GetWatched(ctx)

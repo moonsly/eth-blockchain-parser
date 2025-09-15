@@ -25,9 +25,25 @@
 6) JSON API на net/http с basic HTTP авторизацией
 7) запуск на своем хостинге, тестирование несколько дней с накоплением записей в БД
 8) регулярная очистка старых записей в БД (старше 14 дней)
-
-### В процессе реализации:
 9) Dockerfile
+
+## Запуск в Docker
+
+```bash
+cp .env.example .env
+
+# set INFURA_API_KEY in .env
+vim .env
+
+docker-compose build
+
+docker-compose up -d
+
+# logs
+
+docker-compose logs -f
+
+```
 
 ## CURL для тестирования (АПИ + воркер развернуты на хостинге)
 
@@ -102,7 +118,8 @@ go run ./cmd/infura-parser/main.go -initw
 ```bash
 crontab -e 
 
-*/2 * * * * cd /home/zak/work/eth-blockchain-parser && INFURA_API_KEY="abc_infura_key" ./infura-parser 2>&1 >> /var/log/eth_parser/eth_parser.log```
+*/2 * * * * cd /home/zak/work/eth-blockchain-parser && INFURA_API_KEY="abc_infura_key" ./infura-parser 2>&1 >> /var/log/eth_parser/eth_parser.log
+```
 
 ### 5. Запуск автотестов (для пакета filtering) 
 

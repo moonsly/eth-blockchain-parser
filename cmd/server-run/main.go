@@ -14,7 +14,7 @@ import (
 func main() {
 	// Command line flags
 	var (
-		dbPath   = flag.String("db", "/home/zak/eth-blockchain-parser/blockchain.db", "Path to SQLite database file")
+		dbPath   = flag.String("db", "./blockchain.db", "Path to SQLite database file")
 		port     = flag.String("port", "8015", "HTTP server port")
 		host     = flag.String("host", "localhost", "HTTP server host")
 		username = flag.String("username", "admin", "Basic auth username")
@@ -26,7 +26,7 @@ func main() {
 	logger := log.New(os.Stdout, "[HTTP-SERVER] ", log.LstdFlags|log.Lshortfile)
 	logger.Println("Starting SQLite HTTP API Server")
 
-	dbConfig := database.DefaultConfig("./blockchain.db")
+	dbConfig := database.DefaultConfig(*dbPath)
 	dbManager, err := database.NewDatabaseManager(dbConfig, logger)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)

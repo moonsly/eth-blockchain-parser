@@ -80,7 +80,13 @@ func main() {
 	logger := log.New(os.Stdout, "[ETH-PARSER-DB] ", log.LstdFlags|log.Lshortfile)
 	logger.Println("Initializing database...")
 
-	dbConfig := database.DefaultConfig("/home/zak/work/eth-blockchain-parser/blockchain.db")
+	// Get database path from environment variable or use default
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./blockchain.db"
+	}
+	logger.Println("DB_PATH", dbPath)
+	dbConfig := database.DefaultConfig(dbPath)
 	dbManager, err := database.NewDatabaseManager(dbConfig, logger)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -169,7 +175,7 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 		if err != nil {
 			log.Fatalf("Failed recreate initw %s", err)
 		} else {
-			log.Fatalf("Created WhaleAddresses OK")
+			log.Fatalf("Created or Selected WhaleAddresses OK")
 		}
 	}
 
@@ -256,8 +262,17 @@ Your Infura "API Key" usually looks like: abc123def456789...`)
 }
 
 func initWhales(ctx context.Context, ar *database.AddressRepository, whales map[string]string) error {
-	err := ar.DeleteAll(ctx)
+	// don't delete/create if any whale_address exists
+	any_addr, err := ar.GetAnyAddress(ctx)
 	if err != nil {
+		return fmt.Errorf("failed to select address: %w", err)
+	}
+	if len(any_addr) > 0 {
+		return nil
+	}
+
+	err2 := ar.DeleteAll(ctx)
+	if err2 != nil {
 		return fmt.Errorf("failed to insert address: %w", err)
 	}
 	keys := make([]string, 0, len(whales))
@@ -273,8 +288,8 @@ func initWhales(ctx context.Context, ar *database.AddressRepository, whales map[
 		addrs = append(addrs, &w_addr)
 	}
 
-	err2 := ar.BatchInsert(ctx, addrs)
-	return err2
+	err3 := ar.BatchInsert(ctx, addrs)
+	return err3
 }
 
 // clean old txs (older then 14 days) in DB

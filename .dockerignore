@@ -1,0 +1,44 @@
+# Binaries
+infura-parser
+server-run
+
+# Data files
+*.db
+*.csv
+*.dat
+*.log
+
+# Directories
+data/
+logs/
+.git/
+.gitignore
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Environment files
+.env
+.env.local
+
+# Documentation
+README.md
+WARP.md
+*.md
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/

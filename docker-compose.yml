@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  eth-blockchain-parser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eth-parser
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8015}:8015"
+    environment:
+      # Required: Infura API Key - set this in .env file
+      - INFURA_API_KEY=${INFURA_API_KEY:-af0eb78c2b874cb2a2df3515af9182fa}
+      
+      # Optional: Network configuration
+      - INFURA_NETWORK=${INFURA_NETWORK:-mainnet}
+      
+      # Optional: Server configuration
+      - SERVER_PORT=${SERVER_PORT:-8015}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_USERNAME=${SERVER_USERNAME:-admin}
+      - SERVER_PASSWORD=${SERVER_PASSWORD:-password123}
+      
+      # Optional: File paths (using container paths)
+      - DB_PATH=/app/data/blockchain.db
+      - CSV_PATH=/app/data/whale_txns.csv
+      - LAST_BLOCK_PATH=/app/data/last_block.dat
+    volumes:
+      # Persistent data storage
+      - eth_parser_data:/app/data
+      - eth_parser_logs:/var/log/eth_parser
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-u", "${SERVER_USERNAME:-admin}:${SERVER_PASSWORD:-password123}", "http://localhost:8015/api/transactions?limit=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.eth-parser.rule=Host(`eth-parser.local`)"
+      - "traefik.http.services.eth-parser.loadbalancer.server.port=8015"
+
+volumes:
+  eth_parser_data:
+    driver: local
+  eth_parser_logs:
+    driver: local
