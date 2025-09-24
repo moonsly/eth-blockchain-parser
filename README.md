@@ -104,7 +104,7 @@ rm ./infura-parser; go build -o infura-parser ./cmd/infura-parser/
 
 ### 2. Настройки числа воркеров для управления рейт-лимитами infura
 
-[config.go](pkg/types/config.go)
+[config.go](internal/types/config.go)  - /internal/types/config.go
 
 ```bash
     BatchSize:                  10, // Smaller batches for Infura
